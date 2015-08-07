@@ -34,6 +34,7 @@ func walkFn(path string, info os.FileInfo, err error) error {
 	return nil
 }
 
+
 func processTestOutput(testout []byte, buffer *bytes.Buffer )  {
 
 	bb := bytes.NewBuffer(testout)
@@ -44,8 +45,15 @@ func processTestOutput(testout []byte, buffer *bytes.Buffer )  {
 		}
 
 		linetxt := string(line)
-		if strings.Contains(linetxt, "coverage") || strings.Contains(linetxt,"ok") || strings.Contains(linetxt, "exit"){
+		if strings.HasPrefix(linetxt, "coverage") /*|| strings.HasPrefix(linetxt,"ok")*/ ||
+				 /*strings.HasPrefix(linetxt, "exit") ||*/ strings.HasPrefix(linetxt, "--- FAIL") ||
+				strings.HasPrefix(linetxt, "PASS") ||
+				 strings.HasPrefix(linetxt, "Test directory:") {
 			buffer.WriteString(linetxt)
+		}
+
+		if strings.HasPrefix(linetxt, "coverage") {
+			buffer.WriteRune('\n')
 		}
 	}
 
@@ -55,6 +63,11 @@ func walkDirsWithTestFiles(buffer *bytes.Buffer) {
 
 	for k,_ := range dirsWithTestFiles {
 		println("Running testss in ", k)
+
+		buffer.WriteString("Test directory: ")
+		buffer.WriteString(k)
+		buffer.WriteRune('\n')
+
 		err := os.Chdir(k)
 		if err != nil {
 			println("Error running tests", err.Error())
@@ -85,6 +98,10 @@ func main() {
 
 	buffer := bytes.NewBufferString("")
 	walkDirsWithTestFiles(buffer)
-	println("------")
+
+	println("==================================================")
+	println("Test Summary")
+	println("==================================================")
+
 	println(buffer.String())
 }
