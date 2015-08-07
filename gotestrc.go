@@ -1,17 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"log"
 	"os"
+	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
-	"os/exec"
-	"bytes"
 )
 
-
-
+//dirsWithTestFiles is used to build a collection of directories that contain go tests,
+//e.g. filenames that end with _test.go
 var dirsWithTestFiles = make(map[string]struct{})
 
 func fatal(err error) {
@@ -20,22 +21,24 @@ func fatal(err error) {
 	}
 }
 
+func walkFn(walktpath string, info os.FileInfo, err error) error {
 
-func walkFn(path string, info os.FileInfo, err error) error {
-	if strings.Contains(path, "Godeps") {
+	//Skip directories with Godep in the path component.
+	if strings.Contains(walktpath, "Godeps") {
 		return nil
 	}
 
-	if strings.HasSuffix(path, "_test.go") {
-		replacer := strings.NewReplacer(info.Name(), "")
-		pathSansFile := replacer.Replace(path)
-		dirsWithTestFiles[pathSansFile] = struct{}{}
+	//If the directory contains a test file, add the directory to the collection of
+	//directories containing test files.
+	if strings.HasSuffix(walktpath, "_test.go") {
+		dir, _ := path.Split(walktpath)
+		dirsWithTestFiles[dir] = struct{}{}
 	}
 	return nil
 }
 
-
-func processTestOutput(testout []byte, buffer *bytes.Buffer )  {
+//Collect the relevant output needed for the test summary from the test output.
+func processTestOutput(testout []byte, buffer *bytes.Buffer) {
 
 	bb := bytes.NewBuffer(testout)
 	for {
@@ -45,10 +48,10 @@ func processTestOutput(testout []byte, buffer *bytes.Buffer )  {
 		}
 
 		linetxt := string(line)
-		if strings.HasPrefix(linetxt, "coverage") /*|| strings.HasPrefix(linetxt,"ok")*/ ||
-				 /*strings.HasPrefix(linetxt, "exit") ||*/ strings.HasPrefix(linetxt, "--- FAIL") ||
-				strings.HasPrefix(linetxt, "PASS") ||
-				 strings.HasPrefix(linetxt, "Test directory:") {
+		if strings.HasPrefix(linetxt, "coverage") ||
+			strings.HasPrefix(linetxt, "--- FAIL") ||
+			strings.HasPrefix(linetxt, "PASS") ||
+			strings.HasPrefix(linetxt, "Test directory:") {
 			buffer.WriteString(linetxt)
 		}
 
@@ -59,46 +62,58 @@ func processTestOutput(testout []byte, buffer *bytes.Buffer )  {
 
 }
 
+//Walk the directories containing tests, collecting test summary output in the
+//provided buffer
 func walkDirsWithTestFiles(buffer *bytes.Buffer) {
 
-	for k,_ := range dirsWithTestFiles {
-		println("Running testss in ", k)
+	for k, _ := range dirsWithTestFiles {
+		println("Running tests in ", k)
 
 		buffer.WriteString("Test directory: ")
 		buffer.WriteString(k)
 		buffer.WriteRune('\n')
 
+		//Change working directory to the directory in which to execute the current tests
 		err := os.Chdir(k)
 		if err != nil {
 			println("Error running tests", err.Error())
 		}
-		cmd := exec.Command("godep", "go", "test",  "-cover")
+
+		//Run the tests and assess coverage
+		cmd := exec.Command("godep", "go", "test", "-cover")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			println("Error running tests ", err.Error())
 		}
 
+		//Grab output for the test summary
 		processTestOutput(out, buffer)
 	}
 }
 
 func main() {
 
+	//Run tests in the current directory as the default behavior
 	currentDir, err := os.Getwd()
 	fatal(err)
 
-	root := flag.String("root",currentDir, "root of tree to walk")
+	//Check to see if the default has been overridden via the -root command line option,
+	root := flag.String("root", currentDir, "root of tree to walk")
 	flag.Parse()
 	println("walk ", *root)
 
+	//Change directory to the test root directory for gathering directories with tests
 	err = os.Chdir(*root)
 	fatal(err)
 
+	//Walk the directory hiearachy from the given root looking for directories containing tests
 	filepath.Walk(*root, walkFn)
 
+	//Now go to each directory with tests and execute them
 	buffer := bytes.NewBufferString("")
 	walkDirsWithTestFiles(buffer)
 
+	//Output test summary
 	println("==================================================")
 	println("Test Summary")
 	println("==================================================")
