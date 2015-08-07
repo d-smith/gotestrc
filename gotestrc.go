@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"os/exec"
+	"bytes"
 )
 
 
@@ -33,7 +34,24 @@ func walkFn(path string, info os.FileInfo, err error) error {
 	return nil
 }
 
-func walkDirsWithTestFiles() {
+func processTestOutput(testout []byte, buffer *bytes.Buffer )  {
+
+	bb := bytes.NewBuffer(testout)
+	for {
+		line, err := bb.ReadBytes('\n')
+		if err != nil {
+			break
+		}
+
+		linetxt := string(line)
+		if strings.Contains(linetxt, "coverage") || strings.Contains(linetxt,"ok") || strings.Contains(linetxt, "exit"){
+			buffer.WriteString(linetxt)
+		}
+	}
+
+}
+
+func walkDirsWithTestFiles(buffer *bytes.Buffer) {
 
 	for k,_ := range dirsWithTestFiles {
 		println("Running testss in ", k)
@@ -47,7 +65,7 @@ func walkDirsWithTestFiles() {
 			println("Error running tests ", err.Error())
 		}
 
-		println(string(out))
+		processTestOutput(out, buffer)
 	}
 }
 
@@ -65,5 +83,8 @@ func main() {
 
 	filepath.Walk(*root, walkFn)
 
-	walkDirsWithTestFiles()
+	buffer := bytes.NewBufferString("")
+	walkDirsWithTestFiles(buffer)
+	println("------")
+	println(buffer.String())
 }
